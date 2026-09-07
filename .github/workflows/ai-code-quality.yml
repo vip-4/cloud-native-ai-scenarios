@@ -1,0 +1,121 @@
+name: AI Code Quality Check
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+  push:
+    branches: [main, develop]
+
+jobs:
+  ai-quality-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "files<<EOF" >> $GITHUB_OUTPUT
+            git diff --name-only origin/${{ github.base_ref }}..HEAD >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "files<<EOF" >> $GITHUB_OUTPUT
+            git diff --name-only HEAD~1..HEAD >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Analyze code with AI
+        id: analysis
+        env:
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          # 过滤代码文件
+          CODE_FILES=$(echo "${{ steps.changed.outputs.files }}" | grep -E '\.(ts|js|py|go|rs|java|cpp|c|h|tsx|jsx|vue)$' | head -20)
+          
+          if [ -z "$CODE_FILES" ]; then
+            echo "No code files to analyze"
+            echo "result=No code files to analyze" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          ANALYSIS_RESULT=""
+
+          for file in $CODE_FILES; do
+            if [ -f "$file" ]; then
+              CONTENT=$(cat "$file")
+              
+              # 分析单个文件
+              RESPONSE=$(curl -s -X POST $OPENAI_BASE_URL/chat/completions \
+                -H "Authorization: Bearer $OPENAI_API_KEY" \
+                -H "Content-Type: application/json" \
+                -d '{
+                  "model": "kilo-auto",
+                  "messages": [
+                    {
+                      "role": "system",
+                      "content": "You are a code quality analyzer. Analyze the following code file and provide: 1) Code quality score (1-10), 2) Security issues, 3) Performance issues, 4) Best practices violations, 5) Suggestions for improvement. Be concise."
+                    },
+                    {
+                      "role": "user",
+                      "content": "Analyze this code file:\n\nFile: '$file'\n\n\`\`\`\n'$CONTENT'\n\`\`\`"
+                    }
+                  ],
+                  "temperature": 0.3,
+                  "max_tokens": 1000
+                })
+              
+              SCORE=$(echo $RESPONSE | jq -r '.choices[0].message.content' | head -1)
+              ANALYSIS_RESULT="${ANALYSIS_RESULT}\n\n### $file\n$SCORE"
+            fi
+          done
+
+          echo "result<<EOF" >> $GITHUB_OUTPUT
+          echo "$ANALYSIS_RESULT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Post Quality Report
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const result = `${{ steps.analysis.outputs.result }}`;
+            
+            if (result && result !== 'No code files to analyze') {
+              const comment = {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `## 🤖 AI Code Quality Analysis\n\n${result}\n\n---\n*Analysis by FreeLLMAPI • Model: kilo-auto*`
+              };
+
+              github.rest.issues.createComment(comment);
+
+              // 创建检查
+              github.rest.checks.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'AI Code Quality',
+                head_sha: context.payload.pull_request.head.sha,
+                status: 'completed',
+                conclusion: 'neutral',
+                output: {
+                  title: 'AI Code Quality Analysis',
+                  summary: result.substring(0, 1000)
+                }
+              });
+            }
+
+      - name: Create Quality Badge
+        run: |
+          # 可以在这里生成代码质量徽章
+          echo "Quality check completed"
