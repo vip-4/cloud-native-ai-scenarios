@@ -1,0 +1,24 @@
+name = "ai-chat-room"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ALLOWED_ORIGINS = "*"
+
+[durable_objects]
+bindings = [{name = "AI_CHAT_ROOM", class_name = "AIChatRoom"}]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AIChatRoom"]
+
+# Secrets (set with: wrangler secret put LITELLM_API_KEY)
+# LITELLM_API_KEY = "your-api-key"
+# LITELLM_API_BASE = "http://localhost:4000"
+
+[env.production]
+vars = { ALLOWED_ORIGINS = "https://your-domain.com" }
+
+[env.preview]
+vars = { ALLOWED_ORIGINS = "*" }

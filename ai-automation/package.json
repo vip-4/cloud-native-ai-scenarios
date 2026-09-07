@@ -1,0 +1,15 @@
+{
+  "name": "ai-automation",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "review": "node scripts/ai-review.js",
+    "summary": "node scripts/ai-summary.js",
+    "triage": "node scripts/ai-triage.js"
+  },
+  "dependencies": {
+    "@actions/core": "^1.10.1",
+    "@actions/github": "^6.0.0",
+    "node-fetch": "^3.3.2"
+  }
+}

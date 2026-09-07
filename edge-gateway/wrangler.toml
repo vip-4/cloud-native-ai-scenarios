@@ -1,0 +1,29 @@
+name = "edge-ai-gateway"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Environment variables
+[vars]
+ALLOWED_ORIGINS = "*"
+RATE_LIMIT_MAX = "100"
+RATE_LIMIT_WINDOW = "60"
+
+# Secrets (set with: wrangler secret put LITELLM_API_KEY)
+# LITELLM_API_KEY = "your-api-key"
+# LITELLM_API_BASE = "http://localhost:3001/v1"
+
+# Rate limiting KV namespace (optional)
+# [[kv_namespaces]]
+# binding = "__RATE_LIMIT"
+# id = "your-kv-namespace-id"
+# preview_id = "your-preview-kv-namespace-id"
+
+# Production environment
+[env.production]
+vars = { ALLOWED_ORIGINS = "https://your-domain.com" }
+# route = { pattern = "api.your-domain.com/*", zone_name = "your-domain.com" }
+
+# Preview/development environment
+[env.preview]
+vars = { ALLOWED_ORIGINS = "*" }

@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  litellm-proxy:
+    image: ghcr.io/berriai/litellm:latest
+    container_name: litellm-proxy
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./proxy_server_config.yaml:/app/config.yaml
+      - ./litellm-data:/app/data
+    environment:
+      - LITELLM_MASTER_KEY=sk-master-key-change-in-production
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/litellm
+      - STORE_MODEL_IN_DB=true
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--host", "0.0.0.0"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: litellm-postgres
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+      - POSTGRES_DB=litellm
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d litellm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  litellm-data:
+  postgres-data:

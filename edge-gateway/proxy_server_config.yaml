@@ -1,0 +1,71 @@
+# LiteLLM Proxy Configuration for Cloudflare Worker
+# This config is used when running LiteLLM locally or in Docker
+
+model_list:
+  # FreeLLMAPI gateway (local)
+  - model_name: "kilo-auto"
+    litellm_params:
+      model: openai/kilo-auto
+      api_base: http://localhost:3001/v1
+      api_key: "freellmapi-89a2cae15297e3084396ce15673295ecd58d48e583a8bee3"
+
+  # Groq models (free tier)
+  - model_name: "llama-3.3-70b"
+    litellm_params:
+      model: groq/llama-3.3-70b-versatile
+      api_key: os.environ.get("GROQ_API_KEY")
+
+  - model_name: "gemma2-9b"
+    litellm_params:
+      model: groq/gemma2-9b-it
+      api_key: os.environ.get("GROQ_API_KEY")
+
+  # Google Gemini (free tier)
+  - model_name: "gemini-2.0-flash"
+    litellm_params:
+      model: gemini/gemini-2.0-flash-exp
+      api_key: os.environ.get("GOOGLE_API_KEY")
+
+  # NVIDIA NIM (free tier)
+  - model_name: "nemotron-3.5-30b"
+    litellm_params:
+      model: nvidia_nim/nemotron-3.5-lightning-30b-a3b
+      api_key: os.environ.get("NVIDIA_API_KEY")
+
+  # Mistral (free tier)
+  - model_name: "mistral-nemo"
+    litellm_params:
+      model: mistral/mistral-nemo-instruct-2407
+      api_key: os.environ.get("MISTRAL_API_KEY")
+
+# Router settings
+router_settings:
+  routing_strategy: "latency-based-routing"
+  num_retries: 3
+  timeout: 60
+  allowed_fails: 2
+  retry_after: 5
+  fallbacks:
+    - {"kilo-auto": ["llama-3.3-70b", "gemini-2.0-flash"]}
+
+# General settings
+general_settings:
+  otlp_endpoint: "http://localhost:4318/v1/traces"
+  logging: true
+  log_level: "INFO"
+
+# Rate limiting
+rate_limit:
+  - model_name: "*"
+    requests_per_minute: 60
+    tokens_per_minute: 100000
+
+# CORS settings
+cors_allow_origins:
+  - "*"
+cors_allow_methods:
+  - "POST"
+  - "GET"
+  - "OPTIONS"
+cors_allow_headers:
+  - "*"

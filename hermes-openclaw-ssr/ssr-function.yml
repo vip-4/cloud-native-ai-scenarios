@@ -1,0 +1,14 @@
+
+provider:
+  name: openfaas
+  gateway: http://127.0.0.1:8080
+
+functions:
+  hermes-ssr:
+    lang: dockerfile
+    handler: ./hermes-openclaw-ssr
+    image: yourusername/hermes-ssr:latest
+    environment:
+      # Optional: set any environment variables
+      # write_debug: true
+

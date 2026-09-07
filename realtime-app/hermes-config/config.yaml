@@ -1,0 +1,26 @@
+model:
+  provider: freellmapi
+  model: kilo-auto
+
+gateway:
+  enabled: true
+  port: 18789
+  host: 127.0.0.1
+
+tools:
+  - name: web_search
+    description: Search the web for information
+    enabled: true
+  - name: code_execution
+    description: Execute code in a sandbox
+    enabled: true
+  - name: file_operations
+    description: Read and write files
+    enabled: true
+
+mcp:
+  enabled: true
+  servers:
+    - name: filesystem
+      command: npx
+      args: ["@modelcontextprotocol/server-filesystem", "G:/其他计算机/我的计算机/001"]

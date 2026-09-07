@@ -1,0 +1,13 @@
+{
+  "buildCommand": "pnpm build",
+  "outputDirectory": ".next",
+  "framework": "nextjs",
+  "regions": ["iad1"],
+  "env": {
+    "DATABASE_URL": "@database-url",
+    "OPENAI_BASE_URL": "@openai-base-url",
+    "OPENAI_API_KEY": "@openai-api-key",
+    "OPENCLAW_GATEWAY_TOKEN": "@openclaw-gateway-token",
+    "AUTH_SECRET": "@auth-secret"
+  }
+}

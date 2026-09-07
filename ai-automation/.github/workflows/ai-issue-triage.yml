@@ -1,0 +1,93 @@
+name: AI Issue Triage
+
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull_requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: AI Triage
+        id: triage
+        env:
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ "${{ github.event_name }}" = "issues" ]; then
+            TITLE="${{ github.event.issue.title }}"
+            BODY="${{ github.event.issue.body }}"
+          else
+            TITLE="${{ github.event.issue.title }}"
+            BODY="${{ github.event.comment.body }}"
+          fi
+
+          curl -X POST $OPENAI_BASE_URL/chat/completions \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "model": "kilo-auto",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are an AI issue triage assistant. Analyze the following issue and provide: 1) Category (bug, feature, question, documentation, security), 2) Priority (critical, high, medium, low), 3) Suggested labels, 4) Estimated complexity, 5) Recommended assignee type. Format as JSON."
+                },
+                {
+                  "role": "user",
+                  "content": "Issue Title: $TITLE\n\nIssue Body:\n$BODY"
+                }
+              ],
+              "temperature": 0.3,
+              "max_tokens": 500
+            }' > triage.json
+
+          cat triage.json | jq -r '.choices[0].message.content' > triage.txt
+          echo "triage<<EOF" >> $GITHUB_OUTPUT
+          cat triage.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Apply Labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const triage = `${{ steps.triage.outputs.triage }}`;
+            
+            try {
+              const analysis = JSON.parse(triage);
+              const labels = ['ai-triaged'];
+              
+              if (analysis.category) labels.push(analysis.category);
+              if (analysis.priority) labels.push(`priority-${analysis.priority}`);
+              if (analysis.labels && Array.isArray(analysis.labels)) {
+                labels.push(...analysis.labels);
+              }
+
+              github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: labels
+              });
+
+              // 添加评论
+              const comment = {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `## 🤖 AI Triage Analysis\n\n**Category:** ${analysis.category || 'unknown'}\n**Priority:** ${analysis.priority || 'medium'}\n**Complexity:** ${analysis.complexity || 'medium'}\n**Suggested Assignee:** ${analysis.recommended_assignee_type || 'any'}\n\n*Analysis by AI • Model: kilo-auto*`
+              };
+
+              github.rest.issues.createComment(comment);
+            } catch (e) {
+              console.log('Failed to parse triage response:', triage);
+            }

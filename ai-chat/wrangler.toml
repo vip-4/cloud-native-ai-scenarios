@@ -1,0 +1,8 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/next-on-pages/main/next-schema.json",
+  "version": 2,
+  "framework": "nextjs",
+  "buildCommand": "pnpm build",
+  "outputDirectory": ".next",
+  "installCommand": "pnpm install"
+}
