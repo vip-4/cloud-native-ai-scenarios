@@ -40,6 +40,16 @@ jobs:
       - name: 安装依赖
         run: npm install
 
+      - name: 清理遗留表 (避免 drizzle 重命名误判)
+        run: |
+          cat > /tmp/cleanup.mjs <<'EOF'
+          import { neon } from "@neondatabase/serverless";
+          const sql = neon(process.env.DATABASE_URL || "");
+          await sql`DROP TABLE IF EXISTS visits, pages CASCADE`;
+          console.log("遗留表已清理");
+          EOF
+          node /tmp/cleanup.mjs
+
       - name: 执行数据库迁移 (推送 Schema 到 Neon)
         run: npx drizzle-kit push
         env:
