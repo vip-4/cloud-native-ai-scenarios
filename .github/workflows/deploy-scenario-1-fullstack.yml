@@ -80,7 +80,7 @@ jobs:
         run: |
           # 部署 Worker 并捕获输出（使用 set +e 防止赋值语句吞掉错误）
           set +e
-          DEPLOY_OUTPUT=$(npx wrangler publish 2>&1)
+          DEPLOY_OUTPUT=$(npx wrangler deploy --var DATABASE_URL:"$DATABASE_URL" 2>&1)
           EXIT_CODE=$?
           set -e
           echo "$DEPLOY_OUTPUT"

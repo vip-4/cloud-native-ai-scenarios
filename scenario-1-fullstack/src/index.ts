@@ -8,6 +8,7 @@ import { eq, desc, and, sql } from "drizzle-orm";
 
 type Bindings = {
   DATABASE_URL: string;
+  APP_ENV?: string;
   CLOUDFLARE_API_TOKEN?: string;
   [key: string]: unknown;
 };

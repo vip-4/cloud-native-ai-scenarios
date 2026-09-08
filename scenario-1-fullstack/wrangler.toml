@@ -3,11 +3,11 @@ main = "src/index.ts"
 compatibility_date = "2024-08-01"
 nodejs_compat = true
 
-# 数据库连接串 - 通过环境变量 {DATABASE_URL} 注入
+# 数据库连接串 - 通过 CI 的 --var 参数注入
 # 本地开发: 写入 .dev.vars
-# CI/CD:     GitHub Secrets 自动注入
+# CI/CD:     wrangler deploy --var DATABASE_URL:${DATABASE_URL}
 [vars]
-  DATABASE_URL = "{DATABASE_URL}"
+  APP_ENV = "production"
 
 # 本地开发环境变量（通过 .dev.vars 文件注入，勿提交到 Git）
 # DATABASE_URL = "postgresql://..."
