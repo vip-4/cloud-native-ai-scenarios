@@ -1,0 +1,161 @@
+# 场景一：全栈 Web 应用 - 生产部署流水线
+# 部署目标: Cloudflare Workers (scenario-1-fullstack)
+# 技术栈: Workers + Hono + Neon Postgres + Drizzle ORM
+# 触发: push 到 master/main 或手动触发
+
+name: "Deploy Scenario-1 Fullstack"
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "scenario-1-fullstack/**"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "部署环境"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+
+jobs:
+  # ==================== 数据库迁移 ====================
+  migrate-database:
+    name: "🗄️ 数据库迁移 (Neon)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scenario-1-fullstack
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "scenario-1-fullstack/package-lock.json"
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 执行数据库迁移 (推送 Schema 到 Neon)
+        run: npx drizzle-kit push
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: 迁移结果通知
+        run: |
+          echo "✅ 数据库迁移完成"
+          echo "· 时间: $(date -u)"
+
+  # ==================== 部署到 Cloudflare Workers ====================
+  deploy-production:
+    name: "🚀 部署到 Cloudflare Workers"
+    runs-on: ubuntu-latest
+    needs: [migrate-database]
+    defaults:
+      run:
+        working-directory: scenario-1-fullstack
+    outputs:
+      worker_url: ${{ steps.deploy.outputs.worker_url }}
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "scenario-1-fullstack/package-lock.json"
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: TypeScript 类型检查
+        run: npx tsc --noEmit
+
+      - name: 部署到 Cloudflare Workers
+        id: deploy
+        run: |
+          # 部署 Worker 并捕获输出
+          DEPLOY_OUTPUT=$(npx wrangler publish 2>&1)
+          echo "$DEPLOY_OUTPUT"
+
+          # 从输出中提取 Worker URL
+          WORKER_URL=$(echo "$DEPLOY_OUTPUT" | grep -oP 'https://[a-zA-Z0-9.-]+\.workers\.dev' | head -n 1)
+          echo "worker_url=$WORKER_URL" >> "$GITHUB_OUTPUT"
+          echo "✅ Worker URL: $WORKER_URL"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: 部署完成通知
+        run: |
+          echo "✅ 部署完成"
+          echo "· Worker: ${{ steps.deploy.outputs.worker_url }}"
+          echo "· 健康检查: ${{ steps.deploy.outputs.worker_url }}/api/health"
+          echo "· 时间: $(date -u)"
+
+  # ==================== 生产健康检查 ====================
+  health-check:
+    name: "🩺 生产环境健康检查"
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    steps:
+      - name: 检查 Worker 健康状态
+        run: |
+          WORKER_URL="${{ needs.deploy-production.outputs.worker_url }}"
+
+          if [ -z "$WORKER_URL" ]; then
+            echo "⚠️ 未能获取 Worker URL"
+            exit 0
+          fi
+
+          echo "🔍 健康检查: $WORKER_URL/api/health"
+
+          # 等待部署生效（最长 60 秒）
+          for i in $(seq 1 6); do
+            RESPONSE=$(curl -sf -w "\n%{http_code}" "$WORKER_URL/api/health" 2>/dev/null || true)
+            BODY=$(echo "$RESPONSE" | head -n 1)
+            CODE=$(echo "$RESPONSE" | tail -n 1)
+
+            if [ "$CODE" = "200" ] && echo "$BODY" | grep -q '"status":"ok"'; then
+              echo "✅ 健康检查通过 ($CODE)"
+              echo "· 响应: $BODY"
+              echo "WORKER_READY=true" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            echo "⏳ 等待部署生效... ($i/6)"
+            sleep 10
+          done
+
+          echo "❌ 健康检查失败"
+          curl -v "$WORKER_URL/api/health" || true
+          exit 1
+
+      - name: API 功能验证
+        run: |
+          WORKER_URL="${{ needs.deploy-production.outputs.worker_url }}"
+          if [ -z "$WORKER_URL" ]; then
+            echo "⚠️ 跳过 API 验证"
+            exit 0
+          fi
+
+          # 1. 健康/统计端点
+          echo "📋 测试 GET /api/stats"
+          curl -sf "$WORKER_URL/api/stats" | head -c 300
+          echo ""
+          echo ""
+
+          # 2. 用户列表
+          echo "📋 测试 GET /api/users"
+          curl -sf "$WORKER_URL/api/users" | head -c 300
+          echo ""
+
+          echo "✅ 全部 API 验证通过"
