@@ -78,14 +78,23 @@ jobs:
       - name: 部署到 Cloudflare Workers
         id: deploy
         run: |
-          # 部署 Worker 并捕获输出
+          # 部署 Worker 并捕获输出（使用 set +e 防止赋值语句吞掉错误）
+          set +e
           DEPLOY_OUTPUT=$(npx wrangler publish 2>&1)
+          EXIT_CODE=$?
+          set -e
           echo "$DEPLOY_OUTPUT"
+          echo "exit_code=$EXIT_CODE"
 
           # 从输出中提取 Worker URL
           WORKER_URL=$(echo "$DEPLOY_OUTPUT" | grep -oP 'https://[a-zA-Z0-9.-]+\.workers\.dev' | head -n 1)
           echo "worker_url=$WORKER_URL" >> "$GITHUB_OUTPUT"
           echo "✅ Worker URL: $WORKER_URL"
+
+          # 部署失败则明确报错
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            exit "$EXIT_CODE"
+          fi
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
