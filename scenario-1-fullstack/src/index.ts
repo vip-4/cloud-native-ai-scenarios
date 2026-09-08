@@ -28,7 +28,7 @@ app.use("/api/*", cors({
 app.get("/api/health", async (c) => {
   try {
     // 简单查询验证数据库连接
-    const result = await db.select({ value: sql`1` }).limit(1);
+    const result = await db.execute(sql`SELECT 1`);
     return c.json({
       status: "ok",
       database: "connected",
