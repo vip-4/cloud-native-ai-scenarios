@@ -2,8 +2,9 @@ export interface Env {
   LITELLM_API_KEY: string;
   LITELLM_API_BASE: string;
   ALLOWED_ORIGINS: string;
-  RATE_LIMIT_MAX: number;
-  RATE_LIMIT_WINDOW: number;
+  RATE_LIMIT_MAX: string;
+  RATE_LIMIT_WINDOW: string;
+  __RATE_LIMIT?: any;
 }
 
 interface RateLimitEntry {

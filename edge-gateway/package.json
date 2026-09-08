@@ -8,8 +8,15 @@
     "tail": "wrangler tail",
     "build": "tsc --noEmit"
   },
+  "allowScripts": {
+    "esbuild": true,
+    "@esbuild/linux-x64": true,
+    "workerd": true,
+    "sharp": true
+  },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260907.1",
-    "typescript": "^5.0.0"
+    "@cloudflare/workers-types": "^4.20250408.0",
+    "typescript": "^5.0.0",
+    "wrangler": "^3.60.0"
   }
 }
