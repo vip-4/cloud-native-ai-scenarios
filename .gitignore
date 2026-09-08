@@ -100,6 +100,8 @@ public/
 # Python
 __pycache__/
 *.py[cod]
+*.exe
+python-3.*
 *$py.class
 *.so
 .Python
