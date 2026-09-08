@@ -55,6 +55,11 @@ export default {
           },
         });
 
+        // Upstream proxy unavailable/non-2xx -> return local fallback model list
+        if (!response.ok) {
+          throw new Error(`upstream returned ${response.status}`);
+        }
+
         return new Response(response.body, {
           status: response.status,
           headers: {
@@ -82,35 +87,37 @@ export default {
 
     // API routes - forward to LiteLLM Proxy
     if (url.pathname.startsWith("/v1/")) {
-      // Rate limiting
+      // Optional rate limiting via KV namespace (if configured)
       const clientIP = request.headers.get("CF-Connecting-IP") || "unknown";
       const rateLimitKey = `ratelimit:${clientIP}`;
 
       try {
-        const rateLimitData = (await env.__RATE_LIMIT.get(rateLimitKey, "json")) as RateLimitEntry | null;
-        const now = Date.now();
-        const windowMs = (parseInt(env.RATE_LIMIT_WINDOW || "60000") * 1000);
+        if (env.__RATE_LIMIT) {
+          const rateLimitData = (await env.__RATE_LIMIT.get(rateLimitKey, "json")) as RateLimitEntry | null;
+          const now = Date.now();
+          const windowMs = (parseInt(env.RATE_LIMIT_WINDOW || "60000") * 1000);
 
-        if (rateLimitData && now < rateLimitData.resetTime) {
-          if (rateLimitData.count >= parseInt(env.RATE_LIMIT_MAX || "100")) {
-            return new Response(JSON.stringify({ error: "Rate limit exceeded" }), {
-              status: 429,
-              headers: {
-                "Content-Type": "application/json",
-                "X-RateLimit-Limit": env.RATE_LIMIT_MAX || "100",
-                "X-RateLimit-Remaining": "0",
-                "Retry-After": Math.ceil((rateLimitData.resetTime - now) / 1000).toString(),
-              },
+          if (rateLimitData && now < rateLimitData.resetTime) {
+            if (rateLimitData.count >= parseInt(env.RATE_LIMIT_MAX || "100")) {
+              return new Response(JSON.stringify({ error: "Rate limit exceeded" }), {
+                status: 429,
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-RateLimit-Limit": env.RATE_LIMIT_MAX || "100",
+                  "X-RateLimit-Remaining": "0",
+                  "Retry-After": Math.ceil((rateLimitData.resetTime - now) / 1000).toString(),
+                },
+              });
+            }
+            rateLimitData.count++;
+          } else {
+            await env.__RATE_LIMIT.put(rateLimitKey, JSON.stringify({
+              count: 1,
+              resetTime: now + windowMs,
+            }), {
+              expirationTtl: windowMs / 1000,
             });
           }
-          rateLimitData.count++;
-        } else {
-          await env.__RATE_LIMIT.put(rateLimitKey, JSON.stringify({
-            count: 1,
-            resetTime: now + windowMs,
-          }), {
-            expirationTtl: windowMs / 1000,
-          });
         }
       } catch (e) {
         // Rate limit storage not configured, continue without rate limiting
@@ -130,6 +137,20 @@ export default {
             ? await request.text()
             : undefined,
         });
+
+        // Upstream proxy unavailable/non-2xx -> return explicit 502
+        if (!response.ok) {
+          return new Response(JSON.stringify({
+            error: "AI gateway unavailable",
+            details: `upstream returned ${response.status}`,
+          }), {
+            status: 502,
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": env.ALLOWED_ORIGINS || "*",
+            },
+          });
+        }
 
         // Return response with CORS headers
         return new Response(response.body, {
