@@ -44,6 +44,42 @@ export default {
       });
     }
 
+    // Model list endpoint (handled before generic /v1/ proxy to allow fallback)
+    if (url.pathname === "/v1/models" || url.pathname === "/models") {
+      const targetUrl = `${env.LITELLM_API_BASE || "http://localhost:4000"}${url.pathname}${url.search}`;
+
+      try {
+        const response = await fetch(targetUrl, {
+          headers: {
+            "Authorization": `Bearer ${env.LITELLM_API_KEY}`,
+          },
+        });
+
+        return new Response(response.body, {
+          status: response.status,
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": env.ALLOWED_ORIGINS || "*",
+          },
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({
+          error: "Failed to fetch models",
+          models: [
+            { id: "kilo-auto", object: "model", created: Date.now(), owned_by: "freellmapi" },
+            { id: "llama-3.3-70b-versatile", object: "model", created: Date.now(), owned_by: "groq" },
+            { id: "gemini-2.0-flash-exp", object: "model", created: Date.now(), owned_by: "google" },
+          ],
+        }), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": env.ALLOWED_ORIGINS || "*",
+          },
+        });
+      }
+    }
+
     // API routes - forward to LiteLLM Proxy
     if (url.pathname.startsWith("/v1/")) {
       // Rate limiting
@@ -111,42 +147,6 @@ export default {
           details: error instanceof Error ? error.message : "Unknown error",
         }), {
           status: 502,
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": env.ALLOWED_ORIGINS || "*",
-          },
-        });
-      }
-    }
-
-    // Model list endpoint
-    if (url.pathname === "/v1/models" || url.pathname === "/models") {
-      const targetUrl = `${env.LITELLM_API_BASE || "http://localhost:4000"}${url.pathname}${url.search}`;
-
-      try {
-        const response = await fetch(targetUrl, {
-          headers: {
-            "Authorization": `Bearer ${env.LITELLM_API_KEY}`,
-          },
-        });
-
-        return new Response(response.body, {
-          status: response.status,
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": env.ALLOWED_ORIGINS || "*",
-          },
-        });
-      } catch (error) {
-        return new Response(JSON.stringify({
-          error: "Failed to fetch models",
-          models: [
-            { id: "kilo-auto", object: "model", created: Date.now(), owned_by: "freellmapi" },
-            { id: "llama-3.3-70b-versatile", object: "model", created: Date.now(), owned_by: "groq" },
-            { id: "gemini-2.0-flash-exp", object: "model", created: Date.now(), owned_by: "google" },
-          ],
-        }), {
-          status: 200,
           headers: {
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": env.ALLOWED_ORIGINS || "*",
