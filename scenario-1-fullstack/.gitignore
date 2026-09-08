@@ -1,0 +1,43 @@
+# 依赖与构建
+node_modules/
+dist/
+build/
+.wrangler/
+.turbo/
+
+# 环境变量（关键！防止密钥泄露）
+.env
+.env.*
+*.local
+.dev.vars
+!.env.example
+
+# 数据库迁移备份
+drizzle/migrations/*.sql.bak
+
+# 测试与覆盖率
+coverage/
+.nyc_output/
+
+# IDE 与缓存
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Cloudflare
+.wrangler/tmp/
+
+# 系统文件
+Thumbs.db
+ehthumbs.db
+Desktop.ini

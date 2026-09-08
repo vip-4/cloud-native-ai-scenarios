@@ -1,0 +1,31 @@
+name = "scenario-1-fullstack"
+main = "src/index.ts"
+compatibility_date = "2024-08-01"
+nodejs_compat = true
+
+# 数据库连接串 - 通过环境变量 {DATABASE_URL} 注入
+# 本地开发: 写入 .dev.vars
+# CI/CD:     GitHub Secrets 自动注入
+[vars]
+  DATABASE_URL = "{DATABASE_URL}"
+
+# 本地开发环境变量（通过 .dev.vars 文件注入，勿提交到 Git）
+# DATABASE_URL = "postgresql://..."
+
+# Hyperdrive 连接池（生产环境推荐，降低数据库延迟）
+# [hyperdrive "my-hyperdrive"]
+#   placement = "auto"
+#   connection_pool_size = 20
+
+# Workers KV 命名空间（用于缓存热点数据）
+# [[kv_namespaces]]
+#   binding = "CACHE"
+#   id = "your-kv-namespace-id"
+
+# 路由规则（根据实际域名调整）
+# routes = [
+#   { pattern = "api.yourdomain.com/*", service = "worker" }
+# ]
+
+# 监控配置
+observability = true

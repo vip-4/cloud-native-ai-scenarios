@@ -1,0 +1,13 @@
+# 本地开发环境变量模板
+# 复制为 .dev.vars 并填入实际值（开发环境）
+# ⚠️ .dev.vars 已加入 .gitignore，请勿提交到代码库
+
+# Neon Postgres 连接串（生产环境通过 GitHub Secrets 注入）
+# 格式: postgresql://<user>:<password>@<host>/<database>?sslmode=require
+DATABASE_URL="postgresql://neondb_owner:XXXX@ep-XXXX.us-east-1.aws.neon.tech/neondb?sslmode=require"
+
+# 可选：Hyperdrive 连接池（生产环境推荐）
+# HYPERDRIVE_URL="postgresql://..."
+
+# 可选：Cloudflare Account ID
+# CLOUDFLARE_ACCOUNT_ID="your-random-account-id"
