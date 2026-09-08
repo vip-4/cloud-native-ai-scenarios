@@ -1,0 +1,22 @@
+name: "轮询飞书群消息 (Feishu AI Poller)"
+
+# 主动轮询架构：定时调用 Worker /poll 检查群里的 @机器人 消息并 AI 回复
+# 无需飞书事件订阅
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  poll:
+    name: "🔁 轮询飞书群"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 触发 Worker 轮询
+        run: |
+          RESP=$(curl -fsS -X POST "https://feishu-ai-bot.1911717517.workers.dev/poll" \
+            -H "Content-Type: application/json" -d '{}')
+          echo "$RESP"
+          echo "::notice::Feishu poll: $RESP"

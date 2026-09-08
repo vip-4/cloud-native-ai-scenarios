@@ -3,111 +3,195 @@ export interface Env {
   LITELLM_API_BASE: string;
   FEISHU_APP_ID: string;
   FEISHU_APP_SECRET: string;
-  // 飞书事件订阅的 Encrypt Key（可选，开启加密时填写）
+  FEISHU_CHAT_ID: string;
   FEISHU_ENCRYPT_KEY?: string;
+  FEISHU_KV: KVNamespace;
 }
 
 const FEISHU_API = 'https://open.feishu.cn/open-apis';
 
+// 主动轮询架构：无需飞书事件订阅。
+// cron 每分钟触发 scheduled → 拉取群消息 → 识别 @机器人 文本 → AI 回复
+// KV 记录已处理的最大 message_id，避免重复回复。
+
+export default {
+  async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
+    await pollGroupMessages(env);
+  },
+
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (url.pathname === '/health') {
+      const kvOk = true;
+      return new Response(JSON.stringify({ status: 'ok', kv: kvOk }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (url.pathname === '/poll' && request.method === 'POST') {
+      // 手动触发一次轮询（调试/CI 使用）
+      const result = await pollGroupMessages(env);
+      return new Response(JSON.stringify(result), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (url.pathname === '/feishu/webhook' && request.method === 'POST') {
+      // 保留事件订阅入口（若日后启用，无需重建 worker）
+      return handleFeishuEvent(request, env);
+    }
+
+    return new Response('Feishu AI Bot - polling at /poll, webhook at /feishu/webhook', { status: 200 });
+  },
+};
+
+// ===== 主动轮询核心 =====
+
+async function pollGroupMessages(env: Env): Promise<any> {
+  const chatId = env.FEISHU_CHAT_ID;
+  if (!chatId) return { ok: false, error: 'FEISHU_CHAT_ID not configured' };
+
+  const token = await getTenantAccessToken(env);
+  const bot = await getBotInfo(token);
+  const botOpenId = bot.open_id;
+  console.log('bot open_id:', botOpenId, 'chat:', chatId);
+
+  // 1. 读取游标：上次处理到哪条消息（用 start_time 偏移更简单、含历史）
+  const cursorKey = `cursor:${chatId}`;
+  const startTime = await env.FEISHU_KV.get(cursorKey);
+  console.log('cursor:', startTime || '(none, use epoch 0)');
+
+  // 2. 从群拉消息（含消息内容）— start_time 之后
+  const params = new URLSearchParams({
+    container_id_type: 'chat',
+    container_id: chatId,
+    start_time: startTime || '0',
+    sort_type: 'ByCreateTimeAsc',
+    page_size: '50',
+  });
+  const resp = await fetch(`${FEISHU_API}/im/v1/messages?${params}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data: any = await resp.json();
+  if (data.code !== 0) {
+    console.error('list messages failed:', data.code, data.msg);
+    return { ok: false, error: data.msg };
+  }
+
+  const messages: any[] = data?.data?.items || [];
+  console.log('got messages:', messages.length);
+
+  let processed: string[] = [];
+  let maxCursor: string = startTime || '0';
+
+  // 3. 逐条识别 @机器人 的文本
+  for (const msg of messages) {
+    const createTime = (msg.create_time || '').toString();
+    if (createTime <= maxCursor) continue;
+    maxCursor = createTime;
+
+    // 机器人（app）发送的不处理
+    if (msg.sender?.sender_type === 'app') continue;
+
+    if (msg.msg_type !== 'text') continue;
+
+    let text = '';
+    try {
+      text = JSON.parse(msg.content)?.text || '';
+    } catch {
+      continue;
+    }
+
+    // 是否 @ 了本机器人（飞书群内 @ 会带 <at user_id="bot_open_id">）
+    if (!isMentioningBot(text, botOpenId)) {
+      console.log('skip (not @bot):', text.slice(0, 30));
+      continue;
+    }
+
+    // 解析用户查询（去 @ 占位 + AI 前缀）
+    const query = cleanup(text, botOpenId);
+    if (!query) {
+      console.log('skip empty query');
+      continue;
+    }
+
+    console.log('REPLY to:', query);
+    const reply = await generateAIReply(query, env);
+    await sendFeishuMessage(env, chatId, reply);
+    processed.push(query.slice(0, 40));
+  }
+
+  // 4. 保存游标
+  if (maxCursor && maxCursor !== startTime) {
+    await env.FEISHU_KV.put(cursorKey, maxCursor);
+  }
+
+  return { ok: true, bot_open_id: botOpenId, messages_seen: messages.length, replied: processed };
+}
+
+function isMentioningBot(text: string, botOpenId: string): boolean {
+  return text.includes('<at') && (text.includes(`user_id="${botOpenId}"`) || text.includes(botOpenId));
+}
+
+function cleanup(text: string, botOpenId: string): string {
+  return text
+    .replace(/<at[^>]*>.*?<\/at>/g, '')
+    .replace(/@_user_\d+\s*/g, '')
+    .replace(/^AI\s*/i, '')
+    .trim();
+}
+
+// ===== 事件订阅入口（保留，备用） =====
+
 interface FeishuWebhookBody {
   challenge?: string;
-  token?: string;
-  type?: string;
   schema?: string;
-  header?: {
-    event_id: string;
-    event_type: string;
-    token: string;
-    create_time: string;
-  };
+  header?: { event_type: string; token: string; create_time: string };
   event?: {
     message?: {
       message_id: string;
       message_type: string;
       content: string;
       chat_id: string;
-      create_time: string;
     };
-    sender?: {
-      sender_id?: {
-        open_id: string;
-      };
-    };
+    sender?: { sender_id?: { open_id: string } };
   };
 }
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-
-    if (url.pathname === '/health') {
-      return new Response(JSON.stringify({ status: 'ok' }), {
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    if (url.pathname === '/feishu/webhook' && request.method === 'POST') {
-      return handleFeishuEvent(request, env);
-    }
-
-    return new Response('Feishu AI Bot - webhook at /feishu/webhook', { status: 200 });
-  },
-};
-
 async function handleFeishuEvent(request: Request, env: Env): Promise<Response> {
   try {
-    // 飞书事件订阅可能做 URL 验证：challenge 请求需原样返回
-    const contentType = request.headers.get('content-type') || '';
     const rawBody = await request.text();
     let body: FeishuWebhookBody;
-
     try {
       body = JSON.parse(rawBody);
     } catch {
       return new Response(JSON.stringify({ message: 'invalid json' }), { status: 400 });
     }
 
-    // URL 验证（首次配置事件订阅时飞书会发送 challenge）
     if (body.challenge) {
       return new Response(body.challenge, {
         headers: { 'Content-Type': 'text/plain' },
       });
     }
 
-    const eventType = body.header?.event_type || body.type || '';
-    const event = body.event;
+    const eventType = body.header?.event_type || '';
+    const message = body.event?.message;
+    const senderId = body.event?.sender?.sender_id?.open_id;
 
-    const message = event?.message;
-    const senderId = event?.sender?.sender_id?.open_id;
-
-    console.log('event_type:', eventType, 'msg_type:', message?.message_type);
-
-    // 消息事件
     if (eventType === 'im.message.receive_v1' && message && senderId) {
-      // 只处理文本消息
       if (message.message_type === 'text') {
         let text = '';
         try {
-          const parsed = JSON.parse(message.content);
-          text = parsed.text || '';
+          text = JSON.parse(message.content)?.text || '';
         } catch {
           text = message.content;
         }
-
-        // 去除 @ 提及占位
-        const cleaned = text.replace(/<at[^>]*>.*?<\/at>/g, '').replace(/@_user_\d+\s*/g, '').trim();
-
-        // 移除"AI&nbsp;"或"AI "前缀（机器人名）
-        const userQuery = cleaned.replace(/^AI\s*/i, '').trim();
-
-        if (userQuery) {
-          // 后台异步生成回复（不阻塞事件回执）
-          env = env; // keep
-          request; // keep
-          // 注意：事件回调必须在默认限时内返回，AI 耗时较长时需异步。
-          // Cloudflare Workers 无法直接后置任务，这里串行处理并尽量紧凑。
-          const replyText = await generateAIReply(userQuery, env);
-          await sendFeishuMessage(env, message.chat_id, replyText);
+        const botOpenId = (await getBotInfo(await getTenantAccessToken(env))).open_id;
+        const query = cleanup(text, botOpenId);
+        if (query) {
+          const reply = await generateAIReply(query, env);
+          await sendFeishuMessage(env, message.chat_id, reply);
         }
       }
       return new Response(JSON.stringify({ code: 0, message: 'ok' }), {
@@ -126,6 +210,8 @@ async function handleFeishuEvent(request: Request, env: Env): Promise<Response> 
     );
   }
 }
+
+// ===== 共享工具 =====
 
 async function generateAIReply(userQuery: string, env: Env): Promise<string> {
   const response = await fetch(`${env.LITELLM_API_BASE}/v1/chat/completions`, {
@@ -172,8 +258,18 @@ async function getTenantAccessToken(env: Env): Promise<string> {
   return data.tenant_access_token;
 }
 
+async function getBotInfo(token: string): Promise<{ open_id: string }> {
+  const response = await fetch(`${FEISHU_API}/bot/v3/info`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = (await response.json()) as any;
+  if (data.code !== 0) {
+    throw new Error(`Bot info failed: ${data.msg}`);
+  }
+  return data.bot as { open_id: string };
+}
+
 async function sendFeishuMessage(env: Env, chatId: string, text: string): Promise<void> {
-  // 同一 key 可能被重复获取；Worker 单次运行不需要缓存
   const token = await getTenantAccessToken(env);
   const response = await fetch(`${FEISHU_API}/im/v1/messages?receive_id_type=chat_id`, {
     method: 'POST',

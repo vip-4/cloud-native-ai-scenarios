@@ -3,8 +3,17 @@ main = "src/index.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
+# 群消息主动轮询：由 GitHub Actions 定时调用 /poll 触发（避开 Workers Free 5 cron 上限）
+# 参见 .github/workflows/poll-feishu-bot.yml
+
+[[kv_namespaces]]
+binding = "FEISHU_KV"
+id = "671137c74d034f65ba3f23ad96993ee7"
+
 [vars]
 APP_NAME = "AI 助手"
+# 目标群 chat_id（主动轮询的消息来自此群）
+FEISHU_CHAT_ID = "oc_68d5a1e13c9fdda52acb369c95b883f3"
 
 # Secrets (wrangler secret put):
 # LITELLM_API_KEY / LITELLM_API_BASE
