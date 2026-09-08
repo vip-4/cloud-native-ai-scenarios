@@ -1,0 +1,43 @@
+name: "镜像同步到 Gitee & AtomGit"
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+
+jobs:
+  mirror:
+    name: "🪞 同步 master 到国内镜像仓库"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 检出代码（带完整历史）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 配置 git 环境
+        run: |
+          git config --global user.name "vip-4"
+          git config --global user.email "1911717517@qq.com"
+
+      - name: 同步到 Gitee
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          git remote add gitee "https://vip882:${GITEE_TOKEN}@gitee.com/vip882/cloud-native-ai-scenarios.git"
+          git push gitee master --force
+        continue-on-error: false
+
+      - name: 同步到 AtomGit
+        env:
+          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+        run: |
+          git remote add atomgit "https://zzw1208:${ATOMGIT_TOKEN}@atomgit.com/zzw1208/cloud-native-ai-scenarios.git"
+          git push atomgit master --force
+        continue-on-error: false
+
+      - name: 镜像结果通知
+        run: |
+          echo "✅ Gitee:    https://gitee.com/vip882/cloud-native-ai-scenarios"
+          echo "✅ AtomGit:  https://atomgit.com/zzw1208/cloud-native-ai-scenarios"

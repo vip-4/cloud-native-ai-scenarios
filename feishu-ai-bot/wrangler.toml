@@ -1,0 +1,12 @@
+name = "feishu-ai-bot"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+APP_NAME = "AI 助手"
+
+# Secrets (wrangler secret put):
+# LITELLM_API_KEY / LITELLM_API_BASE
+# FEISHU_APP_ID / FEISHU_APP_SECRET
+# FEISHU_ENCRYPT_KEY (开启事件加密时)

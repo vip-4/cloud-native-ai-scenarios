@@ -100,3 +100,23 @@ jobs:
               issue_number: context.issue.number,
               labels: [label]
             });
+
+      - name: Send Feishu Notification
+        if: github.event_name == 'pull_request' && steps.diff.outputs.diff_size != '0' && secrets.FEISHU_APP_ID != '' && secrets.FEISHU_CHAT_ID != ''
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_CHAT_ID: ${{ secrets.FEISHU_CHAT_ID }}
+          REVIEW: ${{ steps.ai_review.outputs.review }}
+        run: |
+          REVIEW_TEXT="${{ steps.ai_review.outputs.review }}"
+          TEXT="🤖 AI 代码审查完成\n\nPR: #${{ github.event.pull_request.number }} ${{ github.event.pull_request.title }}\n\n$REVIEW_TEXT"
+          bash "${GITHUB_WORKSPACE}/scripts/send-feishu-notification.sh" 2>/dev/null || \
+          curl -fsS -X POST 'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal' \
+            -H 'Content-Type: application/json; charset=utf-8' \
+            -d "{\"app_id\":\"$FEISHU_APP_ID\",\"app_secret\":\"$FEISHU_APP_SECRET\"}" >/tmp/tok.json
+          TOKEN=$(jq -r '.tenant_access_token' /tmp/tok.json)
+          CONTENT=$(python3 -c 'import json,sys; print(json.dumps({"text": sys.argv[1]}, ensure_ascii=False))' "$TEXT")
+          curl -fsS -X POST "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id" \
+            -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json; charset=utf-8' \
+            -d "{\"receive_id\":\"$FEISHU_CHAT_ID\",\"msg_type\":\"text\",\"content\":$CONTENT}" || echo "⚠️ 飞书通知失败(不影响主流程)"

@@ -485,6 +485,113 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
 ---
 
+## 场景六：飞书开放平台 + AI 办公自动化（国内落地追加场景）
+
+> 国内团队最常问："AI 能力怎么接到飞书上？" 本场景补齐：**群机器人 AI 助手 + AI 日报/PR 审查自动通知飞书群**。
+
+### 6.1 典型适用业务方向
+
+- 飞书群里直接 @AI 提问，秒回答案（无需切网页）
+- 每日 AI 日报 / 代码审查结论 / CI 失败消息自动推送到飞书群
+- 企业 IM + 内部知识库问答（结合飞书文档索引）
+
+### 6.2 技术栈选型逻辑
+
+| 决策点 | 选择 | 理由 |
+|--------|------|------|
+| 开放平台 | **飞书自建应用（App ID + Secret）** | 控制台自助创建、免费、文档全中文 |
+| 消息接收 | **事件订阅 `im.message.receive_v1`** | 群内 @机器人 即收到消息事件 |
+| 消息发送 | **`im/v1/messages`（tenant_access_token）** | 主动按 `chat_id` 发送，覆盖 1v1/群 |
+| AI | **Requesty（mistral/leanstral-1-5）** | 既有网关复用，零新增成本 |
+| 承载 | **Cloudflare Worker `/feishu/webhook`** | 公网回调地址 + 免费额度，无需独立服务器 |
+| CI 通知 | **GitHub Actions 内置飞书发消息步骤** | 日报/PR 审查完成后推送飞书群 |
+
+### 6.3 核心功能实现步骤
+
+**步骤 1：飞书开放平台创建应用**
+
+```text
+1. 打开 https://open.feishu.cn/page/launcher → 创建企业自建应用
+2. 应用能力 → 添加「机器人」能力
+3. 权限管理 → 开通 `im:message` / `im:message:send_as_bot`
+4. 事件与回调 → 事件订阅 → 请求地址填 Worker：`https://feishu-ai-bot.xxx.workers.dev/feishu/webhook`
+5. 订阅事件 → 勾选 `im.message.receive_v1`（接收消息）
+6. 把机器人拉进目标群
+```
+
+**步骤 2：Worker 处理挑战 + 消息事件（feishu-ai-bot/src/index.ts）**
+
+```ts
+// URL 验证：飞书首次配置回调地址时会发 {challenge}
+if (body.challenge) return new Response(body.challenge);
+
+// 消息事件
+if (eventType === 'im.message.receive_v1' && message) {
+  const text = JSON.parse(message.content).text;
+  const query = text.replace(/<at[^>]*>.*?<\/at>/g, '').trim();  // 去掉 @AI
+  const reply = await generateAIReply(query, env);               // 调 Requesty
+  await sendFeishuMessage(env, message.chat_id, reply);
+}
+```
+
+**步骤 3：GitHub Actions 通知飞书（ai-daily-summary.yml 追加）**
+
+```yaml
+- name: Send Feishu Notification
+  env:
+    FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+    FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+    FEISHU_CHAT_ID: ${{ secrets.FEISHU_CHAT_ID }}
+  run: |
+    TOKEN=$(curl -s -X POST 'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal' \
+      -H 'Content-Type: application/json' \
+      -d "{\"app_id\":\"$FEISHU_APP_ID\",\"app_secret\":\"$FEISHU_APP_SECRET\"}" | jq -r '.tenant_access_token')
+    curl -s -X POST 'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id' \
+      -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+      -d "{\"receive_id\":\"$FEISHU_CHAT_ID\",\"msg_type\":\"text\",\"content\":{\"text\":\"AI 日报已生成\"}}" 
+```
+
+### 6.4 生产环境部署配置要点
+
+- **Secrets 五件套**：`FEISHU_APP_ID` / `FEISHU_APP_SECRET`（GitHub + Worker 双配）、`FEISHU_CHAT_ID`（把机器人拉进群后从群信息里复制 `oc_xxx`）、`FEISHU_ENCRYPT_KEY`（若开启加密订阅）。
+- **机器人必须先进群**：`im/v1/chats` 返回空即是未进群；API 无法自动拉群，需用户在飞书客户端手动添加。
+- **事件回调限时**：飞书要求秒级响应，AI 耗时较长时不建议同步等待；本 worker 串行处理，查询短时可用，长任务建议再引入 Queue。
+- **URL 验证**：配回调地址时飞书发 `{challenge}`，Worker 必须原样返回该字符串，否则验证失败。
+- **通知与聊天两套通道**：CI 日报用 `tenant_access_token + chat_id` 主动推送；群内对话用事件回调拉取 + 回复。
+
+### 6.5 参考项目（仓库内）
+
+- `feishu-ai-bot/` —— 飞书 AI 助手 Worker（webhook / 挑战 / Requesty / 回复）
+- `.github/workflows/deploy-feishu-bot.yml` —— Bot 部署流水线
+- `scripts/send-feishu-notification.sh` —— CI 飞书通知工具
+- `.github/workflows/ai-daily-summary.yml` / `ai-pr-review.yml` —— 已接入飞书通知
+
+### 6.6 高价值开源参考
+
+| 项目 | 链接 | 借鉴点 |
+|------|------|--------|
+| **axios/axios** | https://github.com/axios/axios | Worker / Node 调飞书 REST API 的统一客户端封装 |
+| **nodejs/node** | https://github.com/nodejs/node | 机器人 service 的并发/超时/重试设计范式 |
+| 飞书开放平台 SDK（JS） | https://github.com/larksuite/oapi-sdk-nodejs | 官方 SDK，签名/加密/事件处理成熟实现 |
+
+✅ **仓库实测结果**：`/health` 200；`/feishu/webhook` challenge 原样返回（URL 验证通过）；模拟 `im.message.receive_v1` 事件返回 `{"code":0}` 全链路正常。
+
+### 6.7 镜像同步（Gitee / AtomGit — 国内访问加速）
+
+```yaml
+# .github/workflows/mirror-to-cn.yml：push 后自动同步
+- name: 同步到 Gitee
+  run: git push "https://vip882:${GITEE_TOKEN}@gitee.com/vip882/cloud-native-ai-scenarios.git" master --force
+- name: 同步到 AtomGit
+  run: git push "https://zzw1208:${ATOMGIT_TOKEN}@atomgit.com/zzw1208/cloud-native-ai-scenarios.git" master --force
+```
+
+国内镜像地址：
+- Gitee: https://gitee.com/vip882/cloud-native-ai-scenarios
+- AtomGit: https://atomgit.com/zzw1208/cloud-native-ai-scenarios
+
+---
+
 ## 附录 A：全场景验证清单（2026-09 实测）
 
 | 场景 | 线上 URL | 验证端点 | 结果 |
@@ -494,6 +601,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 | 三 Serverless | 仓库内 `ai-pr-review.yml` 等 | — | 已配置待触发 |
 | 四 实时聊天 | `https://ai-chat-room.1911717517.workers.dev` | WebSocket `/ws` | 流式 AI 回复成功 |
 | 五 静态站点 | `https://ai-static-site-2tb.pages.dev` | `/` + `/api/search` | 200 + AI 排序正确 |
+| 六 飞书 Bot | `https://feishu-ai-bot.1911717517.workers.dev` | `/feishu/webhook` | challenge 200 + 事件链路 OK |
 
 ## 附录 B：仓库 secrets 清单（均指向 Requesty）
 
@@ -505,6 +613,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 | `OPENAI_API_KEY` | 同上 Requesty 密钥 |
 | `CF_API_TOKEN` / `CF_ACCOUNT_ID` | Cloudflare 部署认证 |
 | `DATABASE_URL` | Neon PostgreSQL 连接串 |
+| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 飞书自建应用凭据 |
+| `FEISHU_CHAT_ID` | 目标飞书群 chat_id（机器人拉群后获取） |
+| `GITEE_TOKEN` / `ATOMGIT_TOKEN` | 国内镜像仓库推送凭据 |
 
 > ⚠️ 场景二/四用 `LITELLM_API_BASE`（无 `/v1`，代码拼路径），场景三用 `OPENAI_BASE_URL`（含 `/v1`，curl 拼无 `/v1` 路径）——两套 secret 不能混用。
 

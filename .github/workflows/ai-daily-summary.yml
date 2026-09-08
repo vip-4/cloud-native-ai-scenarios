@@ -102,6 +102,36 @@ jobs:
               await github.rest.issues.create(issue);
             }
 
+      - name: Send Feishu Notification
+        if: ${{ secrets.FEISHU_APP_ID != '' && secrets.FEISHU_CHAT_ID != '' }}
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_CHAT_ID: ${{ secrets.FEISHU_CHAT_ID }}
+          SUMMARY: ${{ steps.summary.outputs.summary }}
+        run: |
+          # 1. 获取 tenant_access_token
+          TOKEN=$(curl -s -X POST 'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal' \
+            -H 'Content-Type: application/json' \
+            -d "{\"app_id\":\"$FEISHU_APP_ID\",\"app_secret\":\"$FEISHU_APP_SECRET\"}" \
+            | jq -r '.tenant_access_token')
+          echo "✓ 已获取飞书 access token"
+
+          # 2. 发送日报到飞书群
+          MESSAGE=$(python3 - <<'PYEOF'
+          import json
+          summary = """${{ steps.summary.outputs.summary }}""".replace('`','').replace('"','\\"')
+          text = f"📊 每日 AI 日报 - {__import__('datetime').datetime.utcnow().strftime('%Y-%m-%d')}\n\n{summary}"
+          print(json.dumps({"text": text}, ensure_ascii=False))
+          PYEOF
+          )
+
+          RESP=$(curl -s -X POST "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H 'Content-Type: application/json' \
+            -d "{\"receive_id\":\"$FEISHU_CHAT_ID\",\"msg_type\":\"text\",\"content\":$MESSAGE}")
+          echo "✓ 飞书通知已发送: $(echo $RESP | jq -r '.code // .msg || "ok"')"
+
       - name: Send Slack Notification
         if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
         uses: slackapi/slack-github-action@v1.23.0
