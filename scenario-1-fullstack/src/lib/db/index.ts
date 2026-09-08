@@ -1,12 +1,13 @@
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
 
-// 数据库连接（通过环境变量注入，勿硬编码）
-const sql = neon(process.env.DATABASE_URL || "");
+// 可懒初始化的数据库实例（由中间件在首次请求时初始化）
+let _db: ReturnType<typeof drizzle> | null = null;
 
-// 导出 Drizzle ORM 实例
-export const db = drizzle(sql);
-
-// 未来可通过以下方式切换到 Hyperdrive 连接池（生产环境推荐）
-// import { hyperdrive } from "./hyperdrive";
-// export const db = drizzle(hyperdrive.pool);
+export function getDb(databaseUrl: string) {
+  if (!_db) {
+    const sql = neon(databaseUrl);
+    _db = drizzle(sql);
+  }
+  return _db;
+}

@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { db } from "./lib/db";
+import { getDb } from "./lib/db";
+import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-http";
 import { users, posts, comments, categories, postCategories, tags, postTags } from "./lib/db/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
 
@@ -12,6 +14,7 @@ type Bindings = {
 
 type Variables = {
   userId?: number;
+  db: ReturnType<typeof drizzle>;
 };
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -24,11 +27,19 @@ app.use("/api/*", cors({
   maxAge: 86400,
 }));
 
+// 数据库中间件：从 Worker bindings 初始化（不使用全局 process.env）
+app.use("/api/*", async (c, next) => {
+  const db = getDb(c.env.DATABASE_URL);
+  c.set("db", db);
+  await next();
+});
+
 // ==================== 健康检查 ====================
 app.get("/api/health", async (c) => {
   try {
+    const db = c.get("db");
     // 简单查询验证数据库连接
-    const result = await db.execute(sql`SELECT 1`);
+    await db.execute(sql`SELECT 1`);
     return c.json({
       status: "ok",
       database: "connected",
@@ -46,6 +57,7 @@ app.get("/api/health", async (c) => {
 // ==================== 用户 API ====================
 app.get("/api/users", async (c) => {
   try {
+    const db = c.get("db");
     const allUsers = await db
       .select({
         id: users.id,
@@ -65,6 +77,7 @@ app.get("/api/users", async (c) => {
 
 app.post("/api/users", async (c) => {
   try {
+    const db = c.get("db");
     const body = await c.req.json();
     if (!body.name || !body.email) {
       return c.json({ error: "name 和 email 为必填项" }, 400);
@@ -90,6 +103,7 @@ app.get("/api/users/:id", async (c) => {
   const id = parseInt(c.req.param("id"));
   if (isNaN(id)) return c.json({ error: "无效的用户 ID" }, 400);
 
+  const db = c.get("db");
   const user = await db
     .select({
       id: users.id,
@@ -111,6 +125,7 @@ app.put("/api/users/:id", async (c) => {
   const id = parseInt(c.req.param("id"));
   if (isNaN(id)) return c.json({ error: "无效的用户 ID" }, 400);
 
+  const db = c.get("db");
   const body = await c.req.json();
   const updated = await db
     .update(users)
@@ -130,6 +145,7 @@ app.delete("/api/users/:id", async (c) => {
   const id = parseInt(c.req.param("id"));
   if (isNaN(id)) return c.json({ error: "无效的用户 ID" }, 400);
 
+  const db = c.get("db");
   const deleted = await db.delete(users).where(eq(users.id, id)).returning({ id: users.id });
 
   if (!deleted.length) return c.json({ error: "用户不存在" }, 404);
@@ -139,6 +155,7 @@ app.delete("/api/users/:id", async (c) => {
 // ==================== 文章 API ====================
 app.get("/api/posts", async (c) => {
   try {
+    const db = c.get("db");
     const page = parseInt(c.req.query("page") || "1");
     const limit = parseInt(c.req.query("limit") || "10");
     const offset = (page - 1) * limit;
@@ -169,6 +186,7 @@ app.get("/api/posts", async (c) => {
 
 app.post("/api/posts", async (c) => {
   try {
+    const db = c.get("db");
     const body = await c.req.json();
     if (!body.title || !body.content) {
       return c.json({ error: "title 和 content 为必填项" }, 400);
@@ -196,6 +214,7 @@ app.post("/api/posts", async (c) => {
 
 app.get("/api/posts/:slug", async (c) => {
   const slug = c.req.param("slug");
+  const db = c.get("db");
 
   const post = await db
     .select({
@@ -235,6 +254,7 @@ app.put("/api/posts/:id", async (c) => {
   const id = parseInt(c.req.param("id"));
   if (isNaN(id)) return c.json({ error: "无效的文章 ID" }, 400);
 
+  const db = c.get("db");
   const body = await c.req.json();
   const updated = await db
     .update(posts)
@@ -259,6 +279,7 @@ app.delete("/api/posts/:id", async (c) => {
   const id = parseInt(c.req.param("id"));
   if (isNaN(id)) return c.json({ error: "无效的文章 ID" }, 400);
 
+  const db = c.get("db");
   const deleted = await db.delete(posts).where(eq(posts.id, id)).returning({ id: posts.id });
   if (!deleted.length) return c.json({ error: "文章不存在" }, 404);
   return c.json({ message: "文章已删除", data: deleted[0] });
@@ -269,6 +290,7 @@ app.get("/api/posts/:postId/comments", async (c) => {
   const postId = parseInt(c.req.param("postId"));
   if (isNaN(postId)) return c.json({ error: "无效的文章 ID" }, 400);
 
+  const db = c.get("db");
   const allComments = await db
     .select({
       id: comments.id,
@@ -286,6 +308,7 @@ app.get("/api/posts/:postId/comments", async (c) => {
 
 app.post("/api/posts/:postId/comments", async (c) => {
   try {
+    const db = c.get("db");
     const postId = parseInt(c.req.param("postId"));
     if (isNaN(postId)) return c.json({ error: "无效的文章 ID" }, 400);
 
@@ -309,6 +332,7 @@ app.post("/api/posts/:postId/comments", async (c) => {
 
 // ==================== 分类 API ====================
 app.get("/api/categories", async (c) => {
+  const db = c.get("db");
   const allCategories = await db
     .select({
       id: categories.id,
@@ -324,6 +348,7 @@ app.get("/api/categories", async (c) => {
 
 app.post("/api/categories", async (c) => {
   try {
+    const db = c.get("db");
     const body = await c.req.json();
     if (!body.name) return c.json({ error: "分类名称不能为空" }, 400);
 
@@ -344,12 +369,14 @@ app.post("/api/categories", async (c) => {
 
 // ==================== 标签 API ====================
 app.get("/api/tags", async (c) => {
+  const db = c.get("db");
   const allTags = await db.select().from(tags).orderBy(tags.name);
   return c.json({ data: allTags });
 });
 
 app.post("/api/tags", async (c) => {
   try {
+    const db = c.get("db");
     const body = await c.req.json();
     if (!body.name) return c.json({ error: "标签名称不能为空" }, 400);
 
@@ -370,6 +397,7 @@ app.post("/api/tags", async (c) => {
 
 // ==================== 数据统计 API ====================
 app.get("/api/stats", async (c) => {
+  const db = c.get("db");
   const [userCount, postCount, commentCount, categoryCount] = await Promise.all([
     db.select({ count: sql`count(*)` }).from(users),
     db.select({ count: sql`count(*)` }).from(posts),
