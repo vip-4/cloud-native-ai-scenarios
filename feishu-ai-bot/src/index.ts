@@ -57,19 +57,19 @@ async function pollGroupMessages(env: Env): Promise<any> {
   const botOpenId = bot.open_id;
   console.log('bot open_id:', botOpenId, 'chat:', chatId);
 
-  // 1. 读取游标：上次处理到哪条消息（用 start_time 偏移更简单、含历史）
+  // 1. 读取游标：上次处理到哪条消息
   const cursorKey = `cursor:${chatId}`;
-  const startTime = await env.FEISHU_KV.get(cursorKey);
-  console.log('cursor:', startTime || '(none, use epoch 0)');
+  const cursor = await env.FEISHU_KV.get(cursorKey);
+  console.log('cursor:', cursor ? `have(${cursor})` : 'none');
 
-  // 2. 从群拉消息（含消息内容）— start_time 之后
+  // 2. 从群拉消息（含消息内容）— 有游标则从游标时间之后
   const params = new URLSearchParams({
     container_id_type: 'chat',
     container_id: chatId,
-    start_time: startTime || '0',
     sort_type: 'ByCreateTimeAsc',
     page_size: '50',
   });
+  if (cursor) params.set('start_time', cursor);
   const resp = await fetch(`${FEISHU_API}/im/v1/messages?${params}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -83,7 +83,7 @@ async function pollGroupMessages(env: Env): Promise<any> {
   console.log('got messages:', messages.length);
 
   let processed: string[] = [];
-  let maxCursor: string = startTime || '0';
+  let maxCursor: string = cursor || '';
 
   // 3. 逐条识别 @机器人 的文本
   for (const msg of messages) {
@@ -98,7 +98,9 @@ async function pollGroupMessages(env: Env): Promise<any> {
 
     let text = '';
     try {
-      text = JSON.parse(msg.content)?.text || '';
+      // 拉取接口返回的消息体在 body.content（JSON 字符串）；事件订阅为 content
+      const rawContent = msg.body?.content ?? msg.content;
+      text = JSON.parse(rawContent)?.text || '';
     } catch {
       continue;
     }
@@ -122,16 +124,26 @@ async function pollGroupMessages(env: Env): Promise<any> {
     processed.push(query.slice(0, 40));
   }
 
-  // 4. 保存游标
-  if (maxCursor && maxCursor !== startTime) {
-    await env.FEISHU_KV.put(cursorKey, maxCursor);
+  // 4. 保存游标（KV 写入有免费额度限制：仅在有新消息推进时才写；失败降级不崩溃）
+  if (maxCursor && maxCursor !== cursor) {
+    try {
+      await env.FEISHU_KV.put(cursorKey, maxCursor);
+    } catch (err) {
+      console.error('kv put failed (limit?):', err);
+    }
   }
 
   return { ok: true, bot_open_id: botOpenId, messages_seen: messages.length, replied: processed };
 }
 
 function isMentioningBot(text: string, botOpenId: string): boolean {
-  return text.includes('<at') && (text.includes(`user_id="${botOpenId}"`) || text.includes(botOpenId));
+  if (!text.includes('<at')) return false;
+  // 兼容两种存储格式：<at user_id="ou_xxx"> 与 <at user_id=ou_xxx>
+  return (
+    text.includes(`user_id="${botOpenId}"`) ||
+    text.includes(`user_id=${botOpenId}`) ||
+    text.includes(botOpenId)
+  );
 }
 
 function cleanup(text: string, botOpenId: string): string {
