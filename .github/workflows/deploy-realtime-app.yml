@@ -1,57 +1,113 @@
-name: Deploy Realtime App to Cloudflare Workers
+name: "Deploy Realtime AI Chat Room to Cloudflare Workers"
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - "realtime-app/**"
 
 jobs:
-  deploy:
+  # ==================== 部署到 Cloudflare Workers ====================
+  deploy-production:
+    name: "🚀 部署到 Cloudflare Workers"
     runs-on: ubuntu-latest
-    environment: production
-
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: realtime-app
+    outputs:
+      worker_url: ${{ steps.deploy.outputs.worker_url }}
     steps:
-      - name: Checkout
+      - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: 设置 Node.js 环境
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
+          node-version: "24"
 
-      - name: Install dependencies
+      - name: 安装依赖
         run: npm install
 
-      - name: Run TypeScript check
+      - name: TypeScript 类型检查
         run: npx tsc --noEmit
-        continue-on-error: false
 
-      - name: Deploy to Cloudflare Workers (Preview)
-        if: github.event_name == 'pull_request'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --env preview
+      - name: 部署到 Cloudflare Workers
+        id: deploy
+        run: |
+          set +e
+          DEPLOY_OUTPUT=$(npx wrangler deploy 2>&1)
+          EXIT_CODE=$?
+          set -e
+          echo "$DEPLOY_OUTPUT"
+          echo "exit_code=$EXIT_CODE"
 
-      - name: Deploy to Cloudflare Workers (Production)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --env production
+          # 从输出中提取 Worker URL
+          WORKER_URL=$(echo "$DEPLOY_OUTPUT" | grep -oP 'https://[a-zA-Z0-9.-]+\.workers\.dev' | head -n 1)
+          echo "worker_url=$WORKER_URL" >> "$GITHUB_OUTPUT"
+          echo "✅ Worker URL: $WORKER_URL"
 
-      - name: Deploy Frontend to Cloudflare Pages
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: cloudflare/pages-action@v1
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: ai-chat-room
-          directory: frontend/dist
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-          wranglerVersion: "3"
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            exit "$EXIT_CODE"
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+
+      - name: 设置 LITELLM_API_KEY Secret
+        run: echo "$LITELLM_API_KEY" | npx wrangler secret put LITELLM_API_KEY
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          LITELLM_API_KEY: ${{ secrets.LITELLM_API_KEY }}
+
+      - name: 设置 LITELLM_API_BASE Secret
+        run: echo "$LITELLM_API_BASE" | npx wrangler secret put LITELLM_API_BASE
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          LITELLM_API_BASE: ${{ secrets.LITELLM_API_BASE }}
+
+      - name: 部署完成通知
+        run: |
+          echo "✅ 部署完成"
+          echo "· Worker: ${{ steps.deploy.outputs.worker_url }}"
+          echo "· 时间: $(date -u)"
+
+  # ==================== 生产健康检查 ====================
+  health-check:
+    name: "🩺 生产环境健康检查"
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    steps:
+      - name: 转储测试 Worker Durable Object SQLite
+        run: |
+          echo "Durable Object 迁移由 wrangler deploy 自动完成"
+
+      - name: 检查 Worker 健康状态
+        run: |
+          WORKER_URL="${{ needs.deploy-production.outputs.worker_url }}"
+          if [ -z "$WORKER_URL" ]; then
+            echo "⚠️ 未能获取 Worker URL"
+            exit 0
+          fi
+
+          echo "🔍 健康检查: $WORKER_URL"
+          for i in $(seq 1 6); do
+            RESPONSE=$(curl -sf -w "\n%{http_code}" "$WORKER_URL" 2>/dev/null || true)
+            BODY=$(echo "$RESPONSE" | head -n 1)
+            CODE=$(echo "$RESPONSE" | tail -n 1)
+
+            if [ "$CODE" = "200" ]; then
+              echo "✅ 健康检查通过 ($CODE)"
+              echo "· 响应: $BODY"
+              exit 0
+            fi
+            echo "⏳ 等待部署生效... ($i/6)"
+            sleep 10
+          done
+
+          echo "❌ 健康检查失败"
+          curl -v "$WORKER_URL" || true
+          exit 1

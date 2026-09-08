@@ -1,0 +1,22 @@
+{
+  "name": "ai-chat-room",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "build": "tsc --noEmit"
+  },
+  "allowScripts": {
+    "esbuild": true,
+    "@esbuild/linux-x64": true,
+    "workerd": true,
+    "sharp": true
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250408.0",
+    "typescript": "^5.0.0",
+    "wrangler": "^3.60.0"
+  }
+}

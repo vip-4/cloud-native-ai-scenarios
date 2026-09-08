@@ -55,7 +55,7 @@ export class AIChatRoom {
           timestamp: userMessage.timestamp,
         });
 
-        const stream = this.callLiteLLMStream(data.content);
+        const stream = await this.callLiteLLMStream(data.content);
         let fullResponse = '';
 
         for await (const chunk of stream) {
@@ -100,14 +100,14 @@ export class AIChatRoom {
   }
 
   private async callLiteLLMStream(userMessage: string): Promise<AsyncIterable<any>> {
-    const response = await fetch(`${this.env.LITELLM_API_BASE}/chat/completions`, {
+    const response = await fetch(`${this.env.LITELLM_API_BASE}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${this.env.LITELLM_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'kilo-auto',
+        model: 'mistral/leanstral-1-5',
         messages: [
           {
             role: 'system',
@@ -124,6 +124,10 @@ export class AIChatRoom {
 
     if (!response.ok) {
       throw new Error(`LiteLLM error: ${response.status}`);
+    }
+
+    if (!response.body) {
+      throw new Error('LiteLLM error: empty response body');
     }
 
     return this.parseSSEStream(response.body);
