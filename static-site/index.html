@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Docs · 云原生 AI 文档站</title>
+  <meta name="description" content="云原生 AI 应用实战文档站，支持 AI 语义搜索">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="/" class="brand">
+        <span class="brand-mark">AI</span>
+        <span class="brand-name">AI Docs</span>
+      </a>
+      <nav class="nav">
+        <a href="/#docs">文档</a>
+        <a href="/#search">AI 搜索</a>
+        <a href="/#about">关于</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container">
+        <h1>云原生 AI 应用实战文档</h1>
+        <p class="hero-sub">从边缘计算到 Serverless，从实时交互到全球加速 — 基于 Cloudflare · Neon · LiteLLM · Requesty 的生产级 AI 应用指南。</p>
+      </div>
+    </section>
+
+    <section id="search" class="container search-section">
+      <h2>🔍 AI 语义搜索</h2>
+      <p class="muted">输入关键词，AI 会从文档库中自动匹配最相关的内容。</p>
+
+      <form id="search-form" class="search-bar">
+        <input id="search-input" type="text" placeholder="例如：WebSocket 实时聊天 或 Durable Objects 部署"
+               autocomplete="off" required>
+        <button type="submit" id="search-btn">搜索</button>
+      </form>
+
+      <div id="search-status" class="search-status" hidden></div>
+      <div id="search-results" class="search-results"></div>
+    </section>
+
+    <section id="docs" class="container docs-section">
+      <h2>📚 文档库</h2>
+
+      <article class="doc-card">
+        <h3><a href="#docs">WebSocket 实时聊天搭建</a></h3>
+        <p>使用 Cloudflare Durable Objects 构建多用户 AI 聊天房间，支持 WebSocket 持久连接、SSE 流式回复与消息持久化。</p>
+        <span class="tag">实时交互</span>
+      </article>
+
+      <article class="doc-card">
+        <h3><a href="#docs">边缘 AI 网关部署</a></h3>
+        <p>在全球边缘部署 OpenAI 兼容网关，统一代理 Requesty 等上游模型，内置限流、CORS 与健康检查。</p>
+        <span class="tag">边缘计算</span>
+      </article>
+
+      <article class="doc-card">
+        <h3><a href="#docs">Serverless PR 自动审查</a></h3>
+        <p>结合 GitHub Actions 与 AI 能力，在每次 Pull Request 时自动生成代码审查意见，提升团队代码质量。</p>
+        <span class="tag">Serverless</span>
+      </article>
+
+      <article class="doc-card">
+        <h3><a href="#docs">Durable Objects 入门</a></h3>
+        <p>理解 Cloudflare Durable Objects 的存储、状态与 WebSocket 语义，掌握有状态边缘计算的核心概念。</p>
+        <span class="tag">云原生</span>
+      </article>
+
+      <article class="doc-card">
+        <h3><a href="#docs">Neon 数据库集成</a></h3>
+        <p>在 Cloudflare 环境中使用 Neon Serverless PostgreSQL 持久化业务数据，享受自动暂停与连接池能力。</p>
+        <span class="tag">数据库</span>
+      </article>
+
+      <article class="doc-card">
+        <h3><a href="#docs">Cloudflare Pages 全球加速</a></h3>
+        <p>将静态站点部署到 Cloudflare Pages 全球 CDN，浏览器访问与 Pages Functions 计算都更快。</p>
+        <span class="tag">静态加速</span>
+      </article>
+
+      <article class="doc-card">
+        <h3><a href="#docs">Requesty 统一模型网关</a></h3>
+        <p>通过一个 API Key 访问数百个开源与商业大模型，统一 OpenAI 兼容格式，按量计费。</p>
+        <span class="tag">AI 模型</span>
+      </article>
+
+      <article class="doc-card">
+        <h3><a href="#docs">GitHub Actions CI/CD</a></h3>
+        <p>从推送到自动部署的完整流水线：类型检查、构建、Cloudflare 部署与生产健康检查。</p>
+        <span class="tag">DevOps</span>
+      </article>
+    </section>
+
+    <section id="about" class="container about-section">
+      <h2>⭐ 关于本站</h2>
+      <p class="muted">云原生 AI 应用实战场景系列。本页为静态站点 + AI 语义搜索演示，搜索由 Cloudflare Pages Functions 调用 Requesty 完成。</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>© 2026 AI Docs · Cloudflare Pages · Neon · Requesty</p>
+    </div>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
